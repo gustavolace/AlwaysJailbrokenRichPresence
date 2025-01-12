@@ -19,7 +19,7 @@ default_config = {
     "var": {
         "ip": "",  # IPv4 address belonging to device
         "client_id": 858345055966461973,  # Discord developer application ID
-        "wait_time": 10,           # how long to wait before grabbing new data
+        "wait_time": 5,           # how long to wait before grabbing new data
         "retro_covers": True,       # will try to show separate covers if set to True
         "presence_on_home": True,   # will disconnect from Discord if set to False
         "use_devapps": False,       # whether script will try and change dev app based on titleID
@@ -109,35 +109,51 @@ class GatherDetails:
     def get_title_id(self):     # function always called
         print("Calling get_title_id()")
         ftp = FTP()
-        ftp.set_pasv(False)     # Github issue #4, need Active mode to work with Pi-Pwn
+        ftp.set_pasv(True)     # Github issue #4, need Active mode to work with Pi-Pwn
         data = []
         self.title_id, self.game_type, = None, None     # reset every run
-        try:
-            ftp.connect(pw.config["var"]["ip"], 2121, timeout=pw.config["var"]["wait_time"])  # uses port 2121 for ftp # fork adding timeout to remote connection
-            ftp.login("", "")   # no login credentials
-            ftp.cwd("/mnt/sandbox")     # change directory
-            ftp.dir(data.append)    # get directory listing, add each item to list
-            ftp.quit()  # close FTP connection
-        except (ConnectionRefusedError, TimeoutError) as e:     # couldn't connect to PS4
-            pw.RPC.clear()    # ?
-            print("get_title_id():  PS4 not found, sleeping")
-            while pw.test_for_ps4(pw.config["var"]["ip"]) is False:
-                sleep(pw.config["var"]["wait_time"])
-        else:   # neither error above were raised
-            for item in data:   # loop through each folder found from directory
-                if (res := re.search("(?!NPXS)([a-zA-Z0-9]{4}[0-9]{5})", item)) is not None:    # Assignment expression,
-                    # do not match NPXS, do match 4 characters followed by 5 numbers (Homebrew can use titleIDs with prefix other than "CUSA")
-                    self.title_id = res.group(0)     # remove regex junk
-            if self.title_id is None:    # user is on homescreen
-                self.title_id = "main_menu"     # discord art asset naming conventions (no spaces, no capitals)
-                self.game_image = self.title_id
-            else:   # user is in some program (PS4 game, homebrew, retro game, etc)
-                if self.title_id[:4] in title_id_dict.get("PS4"):    # first 4 characters from title_id removes numbers
-                    self.game_type = "PS4"
-                elif self.title_id[:4] in title_id_dict.get("PS1/2"):
-                    self.game_type = "PS1/2"
+
+        max_retries = 2
+        attempt = 0
+        success = False
+        while attempt < max_retries and not success:
+            try:
+                attempt += 1
+                ftp.connect(pw.config["var"]["ip"], 2121, timeout=pw.config["var"]["wait_time"])  # uses port 2121 for ftp # fork adding timeout to remote connection
+                ftp.login("", "")   # no login credentials
+                ftp.cwd("/mnt/sandbox")     # change directory
+                ftp.dir(data.append)    # get directory listing, add each item to list
+                ftp.quit()  # close FTP connection
+                success = True
+            except (ConnectionRefusedError, TimeoutError) as e:     # couldn't connect to PS4
+                print(f"Attempt {attempt} failed: {e}")
+                if attempt < max_retries:
+                    print("Retrying in 5 seconds...")
+                    sleep(5)
                 else:
-                    self.game_type = "Homebrew"
+                    print("Max retries reached. PS4 not found.")    
+                    pw.RPC.clear()    # ?
+                    print("get_title_id():  PS4 not found, sleeping")
+                    while pw.test_for_ps4(pw.config["var"]["ip"]) is False:
+                        sleep(pw.config["var"]["wait_time"])
+            except Exception as e:
+                print(f"Unexpected error: {e}")
+                break
+        else:   # neither error above were raised
+                for item in data:   # loop through each folder found from directory
+                    if (res := re.search("(?!NPXS)([a-zA-Z0-9]{4}[0-9]{5})", item)) is not None:    # Assignment expression,
+                        # do not match NPXS, do match 4 characters followed by 5 numbers (Homebrew can use titleIDs with prefix other than "CUSA")
+                        self.title_id = res.group(0)     # remove regex junk
+                if self.title_id is None:    # user is on homescreen
+                    self.title_id = "main_menu"     # discord art asset naming conventions (no spaces, no capitals)
+                    self.game_image = self.title_id
+                else:   # user is in some program (PS4 game, homebrew, retro game, etc)
+                    if self.title_id[:4] in title_id_dict.get("PS4"):    # first 4 characters from title_id removes numbers
+                        self.game_type = "PS4"
+                    elif self.title_id[:4] in title_id_dict.get("PS1/2"):
+                        self.game_type = "PS1/2"
+                    else:
+                        self.game_type = "Homebrew"
         print(f"get_title_id():  {self.title_id, self.game_type}")
 
 
