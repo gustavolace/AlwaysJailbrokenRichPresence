@@ -19,7 +19,7 @@ default_config = {
     "var": {
         "ip": "",  # IPv4 address belonging to device
         "client_id": 858345055966461973,  # Discord developer application ID
-        "wait_time": 5,           # how long to wait before grabbing new data
+        "wait_time": 10,           # how long to wait before grabbing new data
         "retro_covers": True,       # will try to show separate covers if set to True
         "presence_on_home": True,   # will disconnect from Discord if set to False
         "use_devapps": False,       # whether script will try and change dev app based on titleID
