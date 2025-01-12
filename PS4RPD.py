@@ -1,8 +1,6 @@
 from pathlib import Path  # getting location of config file
 import json  # get and set values for external config file
-from socket import socket, AF_INET, SOCK_DGRAM  # get host's IP address
 import re  # various string manipulation via regex
-import networkscan  # get list of devices on user's network
 from ftplib import FTP  # connection between PC and device
 from pypresence import Presence  # sends presence data to Discord client
 from pypresence.exceptions import DiscordNotFound  # handles when Discord cannot be found as process
@@ -12,17 +10,20 @@ import hmac     # generate link for tmdb
 from hashlib import sha1    # generate link for tmdb
 import requests     # get data from website
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 default_config = {
     "var": {
         "ip": "",  # IPv4 address belonging to device
         "client_id": 858345055966461973,  # Discord developer application ID
-        "wait_time": 120,           # how long to wait before grabbing new data
+        "wait_time": 5,           # how long to wait before grabbing new data
         "retro_covers": True,       # will try to show separate covers if set to True
-        "hibernate": False,         # whether IP prompt is shown when fail to connect to ps4, or to wait (previously "ip_prompt")
-        "hibernate_time": 600,      # how long to wait before attempting to reconnect
         "presence_on_home": True,   # will disconnect from Discord if set to False
         "use_devapps": False,       # whether script will try and change dev app based on titleID
-        "show_timer": False         # whether to show time elapsed. Currently not useful if "hibernate" is used.
+        "show_timer": True         # whether to show time elapsed. Currently not useful if "hibernate" is used.
     },
     "devapps": [
         {"devid": "", "titleid": ""}
@@ -40,93 +41,38 @@ title_id_dict = {
 tmdb_key = bytearray.fromhex('F5DE66D2680E255B2DF79E74F890EBF349262F618BCAE2A9ACCDEE5156CE8DF2CDF2D48C71173CDC2594465B87405D197CF1AED3B7E9671EEB56CA6753C2E6B0')
 config_path = Path("ps4rpdConfig.txt")
 
+timer = time()
 
 class PrepWork:
     def __init__(self):
         self.config = default_config  # default config will be used if config file is not found
         self.RPC = None
 
-    def read_config(self):
-        if config_path.is_file():  # file exists
-            with config_path.open(mode="r") as f:
-                try:
-                    self.config = json.load(f)  # load config from external file
-                except json.decoder.JSONDecodeError as e:
-                    print(f"read_config():   error with JSON (config file): {e}")
-                f.close()
-            if self.test_for_ps4(self.config["var"]["ip"]) is False:
-                # check that IP still belongs to PS4 and that it is online.
-                if self.config["var"]["hibernate"] is False:
-                    self.prompt_user()
-                else:
-                    while self.test_for_ps4(self.config["var"]["ip"]) is False:
-                        print(f"read_config():   ps4 not found, hibernating {self.config['var']['hibernate_time']} seconds")
-                        sleep(self.config["var"]["hibernate_time"])
-        else:  # file does not exist
-            self.prompt_user()  # ask user how to get the devices IP address
-
-    def prompt_user(self):
-        print("Get PS4's IP address Automatically or Manually?")
-        choice = "placeholder"
-        accepted = ["a", "m"]
-        while choice[0].lower() not in accepted:  # loop until first character of user input is either "a" or "m"
-            choice = input("Please enter either 'a' or 'm': ")
-        if choice[0].lower() == "a":  # use networkscan to try and find device automatically
-            self.scan_network()
-        elif choice[0].lower() == "m":  # allow user to manually enter device IP address
-            self.get_ip_from_user()
-        else:  # this should never be reached
-            exit("Unexpected input")
-
-    def scan_network(self):
-        try:
-            temp_sock = socket(AF_INET, SOCK_DGRAM)
-            temp_sock.connect(("8.8.8.8", 80))
-            host_ip = temp_sock.getsockname()[0]  # host IP address
-            temp_sock.close()
-        except Exception as e:
-            print(f"Error while getting host network. '{e}'")
-            self.get_ip_from_user()
-        else:
-            host_ip = re.search("^(.*)\.", host_ip).group(
-                0) + "0/24"  # replace 4th octet and add short-form subnet mask
-            print(f"Expected network is '{host_ip}'.")
-
-            scan = networkscan.Networkscan(host_ip)
-            scan.run()
-            print(f"Completed network scan: {scan.list_of_hosts_found}")
-            # ps4_ip = [i for i in scan.list_of_hosts_found if test_for_ps4(i) is True] # list comprehension alternative
-            ps4_ip = None
-            for i in range(len(scan.list_of_hosts_found)):  # iterate through list of IP addresses
-                if self.test_for_ps4(scan.list_of_hosts_found[i]):
-                    ps4_ip = scan.list_of_hosts_found[i]
-                    break  # break out of loop since the device has been found
-            if ps4_ip is None:  # no device on network belongs to device
-                print("No device on network was found to belong to a Jailbroken PS4 running an FTP server.")
-                self.prompt_user()
-            else:
-                self.save_config(ps4_ip)
-
     def get_ip_from_user(self):
-        ip = input("Please enter the PS4's IP address: ")
-        while self.test_for_ps4(ip) is False:
-            ip = input("Please enter the PS4's IP address: ")
-        self.save_config(ip)
+        public_ip = os.environ.get('PUBLIC_IP')
+        self.save_config(public_ip)
 
     def test_for_ps4(self, ip):
+        global timer
+        timer = time()
         ftp = FTP()
-        ftp.set_pasv(False)     # Github issue #4, need Active mode to work with Pi-Pwn
+        ftp.set_pasv(True)     # Github issue #4, need Active mode to work with Pi-Pwn # Fork comment, changing to True someway worked better
+
         try:
-            ftp.connect(ip, 2121)  # device uses port 2121
+            ftp.connect(ip, 2121, timeout=pw.config["var"]["wait_time"])  # device uses port 2121
             ftp.login("", "")  # device has no creds by default
-            ftp.cwd("/mnt/sandbox/NPXS20001_000")  # device has path as specified (NPXS20001: SCE_LNC_APP_TYPE_SHELL_UI)
+            ftp.cwd("/mnt/sandbox/")  # device has path as specified (NPXS20001: SCE_LNC_APP_TYPE_SHELL_UI)
             ftp.quit()  # close FTP connection
+        
         except Exception as e:
-            print(f"test_for_ps4():     No FTP server found on '{ip}'. '{e}'.")
-            return False  # some error was encountered, FTP server required does not exist on given IP
+                print(f"test_for_ps4():     No FTP server found on '{ip}'. '{e}'.")
+                return False  # some error was encountered, FTP server required does not exist on given IP
         else:
-            print(f"test_for_ps4():     PS4 found on '{ip}'")
-            return True  # no errors were encountered, an FTP server with no login creds, and "/mnt/sandbox" exists
+                
+                print(f"test_for_ps4():     PS4 found on '{ip}'")
+                return True  # no errors were encountered, an FTP server with no login creds, and "/mnt/sandbox" exists
+
+
 
     def save_config(self, ip):
         self.config["var"]["ip"] = ip
@@ -161,24 +107,22 @@ class GatherDetails:
         self.dev_app_changed = False
 
     def get_title_id(self):     # function always called
+        print("Calling get_title_id()")
         ftp = FTP()
         ftp.set_pasv(False)     # Github issue #4, need Active mode to work with Pi-Pwn
         data = []
         self.title_id, self.game_type, = None, None     # reset every run
         try:
-            ftp.connect(pw.config["var"]["ip"], 2121)  # uses port 2121 for ftp
+            ftp.connect(pw.config["var"]["ip"], 2121, timeout=pw.config["var"]["wait_time"])  # uses port 2121 for ftp # fork adding timeout to remote connection
             ftp.login("", "")   # no login credentials
             ftp.cwd("/mnt/sandbox")     # change directory
             ftp.dir(data.append)    # get directory listing, add each item to list
             ftp.quit()  # close FTP connection
         except (ConnectionRefusedError, TimeoutError) as e:     # couldn't connect to PS4
-            # pw.RPC.clear()    # TODO?
+            pw.RPC.clear()    # ?
             print("get_title_id():  PS4 not found, sleeping")
             while pw.test_for_ps4(pw.config["var"]["ip"]) is False:
-                if pw.config["var"]["hibernate"] is False:
-                    sleep(pw.config["var"]["wait_time"])
-                else:
-                    sleep(pw.config["var"]["hibernate_time"])
+                sleep(pw.config["var"]["wait_time"])
         else:   # neither error above were raised
             for item in data:   # loop through each folder found from directory
                 if (res := re.search("(?!NPXS)([a-zA-Z0-9]{4}[0-9]{5})", item)) is not None:    # Assignment expression,
@@ -195,6 +139,8 @@ class GatherDetails:
                 else:
                     self.game_type = "Homebrew"
         print(f"get_title_id():  {self.title_id, self.game_type}")
+
+
 
     def check_mapped(self):
         self.game_name, self.game_image = None, self.title_id   # game_image is title_id to assume user is on home screen
@@ -260,7 +206,7 @@ class GatherDetails:
 
     def get_other_game_info(self):  # Homebrew, and anything else not detected as either PS4 or PS1/PS2 game
         # This is a placeholder for when/if a way to map other programs is thought of
-        if self.title_id != "main_menu":
+        if self.title_id != "main_menu" and self.title_id:
             self.game_name = self.title_id
             self.game_image = self.title_id.lower()     # lower() for Discord dev app images
             pw.save_game_info({"titleid": self.title_id, "name": self.game_name, "image": self.game_image})
@@ -285,20 +231,21 @@ class GatherDetails:
             pw.RPC.connect()
 
 
-
 pw = PrepWork()
 gd = GatherDetails()
-timer = time()
 
 def driver():   # hopefully temp driver function, overly messy
-    pw.read_config()
+    pw.get_ip_from_user()
     pw.connect_to_discord()  # called here as *something* clashes with networkscan
     prev_titleid = ""
+
     while True:
         gd.get_title_id()
         if prev_titleid == gd.title_id:     # same program as before is open
             print(f"reusing previous presence data for {gd.game_name}")
         else:   # a new program has been opened
+            global timer
+            timer = time()
             gd.check_mapped()
             prev_titleid = gd.title_id
             if pw.config["var"]["use_devapps"] is True:
