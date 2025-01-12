@@ -45,7 +45,7 @@ The original project is available on [zorua98741's GitHub repository](https://gi
 ## Setup Steps
 
 ### 1. Copy the Code
-- Transfer the `PS4RPD.py` file to your VM.
+- Transfer the [PS4RPD.py](./PS4RPD.py) file to your VM.
 
 ### 2. Network Configuration
 - Ensure no `iptables` rules or subnet settings block your public connection.
@@ -59,7 +59,7 @@ The original project is available on [zorua98741's GitHub repository](https://gi
   pip install python-dotenv pypresence
 
 ### 3.1. Copy and Configure `.env` File
-- Copy the `.env.example` file to `.env`:
+- Rename the [.env.example](./.env.example) file to `.env`:
   ```bash
   sudo mv .env.example .env
 
